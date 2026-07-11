@@ -34,12 +34,37 @@ export default function AppShell({ children, requireRole = 'any' }: AppShellProp
           return
         }
 
-        const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).single()
+        const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle()
         if (!isMounted) return
 
-        if (error || !data) {
+        if (error) {
           console.error('[v0] Profile load error:', error)
           router.replace('/')
+          return
+        }
+
+        // If profile doesn't exist, create it (fallback for users created before trigger)
+        if (!data) {
+          const { data: newProfile, error: createError } = await supabase
+            .from('profiles')
+            .insert({
+              id: user.id,
+              name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+              role: user.user_metadata?.role || 'technician',
+            })
+            .select()
+            .single()
+
+          if (createError || !newProfile) {
+            console.error('[v0] Profile creation error:', createError)
+            router.replace('/')
+            return
+          }
+
+          if (!isMounted) return
+          const p: Profile = { ...newProfile, email: user.email ?? '' }
+          setProfile(p)
+          setLoading(false)
           return
         }
 
