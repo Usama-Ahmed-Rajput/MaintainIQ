@@ -24,35 +24,64 @@ export default function AppShell({ children, requireRole = 'any' }: AppShellProp
 
   useEffect(() => {
     const supabase = createClient()
+    let isMounted = true
 
     async function loadProfile() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        router.replace('/')
-        return
+      try {
+        const { data: { user }, error: userError } = await supabase.auth.getUser()
+        if (userError || !user) {
+          if (isMounted) router.replace('/')
+          return
+        }
+
+        const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).single()
+        if (!isMounted) return
+
+        if (error || !data) {
+          console.error('[v0] Profile load error:', error)
+          router.replace('/')
+          return
+        }
+
+        const p: Profile = { ...data, email: user.email ?? '' }
+        if (requireRole !== 'any' && data.role !== requireRole) {
+          router.replace(data.role === 'admin' ? '/dashboard' : '/technician')
+          return
+        }
+
+        if (isMounted) {
+          setProfile(p)
+          setLoading(false)
+        }
+      } catch (err) {
+        console.error('[v0] loadProfile error:', err)
+        if (isMounted) {
+          setLoading(false)
+          router.replace('/')
+        }
       }
-      const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-      if (!data) {
-        router.replace('/')
-        return
-      }
-      const p: Profile = { ...data, email: user.email }
-      if (requireRole !== 'any' && data.role !== requireRole) {
-        // Redirect to the correct dashboard
-        router.replace(data.role === 'admin' ? '/dashboard' : '/technician')
-        return
-      }
-      setProfile(p)
-      setLoading(false)
     }
+
+    const timeoutId = setTimeout(() => {
+      if (isMounted && loading) {
+        console.error('[v0] Profile load timeout')
+        setLoading(false)
+        router.replace('/')
+      }
+    }, 5000)
 
     loadProfile()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) router.replace('/')
+      if (!session && isMounted) router.replace('/')
     })
-    return () => subscription.unsubscribe()
-  }, [router, requireRole])
+
+    return () => {
+      isMounted = false
+      clearTimeout(timeoutId)
+      subscription.unsubscribe()
+    }
+  }, [router, requireRole, loading])
 
   async function handleSignOut() {
     const supabase = createClient()
