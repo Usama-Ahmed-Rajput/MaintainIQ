@@ -1,7 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
 const apiKey = process.env.GEMINI_API_KEY || ''
-console.log('[v0] Gemini API Key loaded:', apiKey ? 'YES' : 'NO - using fallback')
 const genAI = new GoogleGenerativeAI(apiKey)
 
 export interface TriageResult {
@@ -20,7 +19,6 @@ export async function triageIssue(
   description: string,
 ): Promise<TriageResult> {
   try {
-    console.log('[v0] Starting AI triage with Gemini API')
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
     const prompt = `You are an expert maintenance and asset management AI. Analyze this maintenance issue and provide structured triage information.
@@ -43,11 +41,13 @@ IMPORTANT: Return ONLY valid JSON, nothing else.`
 
     const result = await model.generateContent(prompt)
     const text = result.response.text()
-    console.log('[v0] Gemini response received:', text.substring(0, 100))
 
-    // Parse the JSON response
-    const triageData = JSON.parse(text)
-    console.log('[v0] Triage data parsed:', triageData)
+    // Strip markdown code fences if present, then parse JSON
+    const cleaned = text
+      .replace(/```json\s*/gi, '')
+      .replace(/```\s*/g, '')
+      .trim()
+    const triageData = JSON.parse(cleaned)
 
     return {
       category: triageData.category || 'Other',
@@ -59,10 +59,7 @@ IMPORTANT: Return ONLY valid JSON, nothing else.`
       maintenanceSummary: triageData.maintenanceSummary || description,
     }
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error)
-    console.error('[v0] AI Triage Error:', errorMsg)
-    console.error('[v0] API Key set:', !!apiKey)
-    console.error('[v0] Full error:', error)
+    console.error('AI Triage Error:', error instanceof Error ? error.message : error)
     // Return default triage if API fails
     return {
       category: 'Other',
@@ -82,7 +79,7 @@ export async function generateMaintenanceSummary(
   partsUsed?: string,
 ): Promise<string> {
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
     const prompt = `Generate a professional maintenance summary (2-3 sentences) for the following:
 
