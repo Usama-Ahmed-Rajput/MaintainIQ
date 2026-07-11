@@ -34,12 +34,32 @@ export default function AppShell({ children, requireRole = 'any' }: AppShellProp
           return
         }
 
-        const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle()
+        // Fetch profile from database (bypassing cache)
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .maybeSingle()
+        
         if (!isMounted) return
 
         if (error) {
           console.error('[v0] Profile load error:', error)
           router.replace('/')
+          return
+        }
+
+        // If profile exists, use it
+        if (data) {
+          const p: Profile = { ...data, email: user.email ?? '' }
+          if (requireRole !== 'any' && data.role !== requireRole) {
+            router.replace(data.role === 'admin' ? '/dashboard' : '/technician')
+            return
+          }
+          if (isMounted) {
+            setProfile(p)
+            setLoading(false)
+          }
           return
         }
 
