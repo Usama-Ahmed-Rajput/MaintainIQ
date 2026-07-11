@@ -1,6 +1,8 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
+const apiKey = process.env.GEMINI_API_KEY || ''
+console.log('[v0] Gemini API Key loaded:', apiKey ? 'YES' : 'NO - using fallback')
+const genAI = new GoogleGenerativeAI(apiKey)
 
 export interface TriageResult {
   category: string
@@ -18,6 +20,7 @@ export async function triageIssue(
   description: string,
 ): Promise<TriageResult> {
   try {
+    console.log('[v0] Starting AI triage with Gemini API')
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
 
     const prompt = `You are an expert maintenance and asset management AI. Analyze this maintenance issue and provide structured triage information.
@@ -40,9 +43,11 @@ IMPORTANT: Return ONLY valid JSON, nothing else.`
 
     const result = await model.generateContent(prompt)
     const text = result.response.text()
+    console.log('[v0] Gemini response received:', text.substring(0, 100))
 
     // Parse the JSON response
     const triageData = JSON.parse(text)
+    console.log('[v0] Triage data parsed:', triageData)
 
     return {
       category: triageData.category || 'Other',
