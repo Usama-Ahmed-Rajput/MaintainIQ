@@ -8,7 +8,7 @@ import { ShieldCheck, Eye, EyeOff, Loader2, Key, UserCheck, Wrench } from 'lucid
 
 type Mode = 'signin' | 'signup'
 
-export default function LoginPage() {
+export default function HomePage() {
   const router = useRouter()
   const [mode, setMode] = useState<Mode>('signin')
   const [isAdminSignup, setIsAdminSignup] = useState(false)
@@ -30,7 +30,7 @@ export default function LoginPage() {
           .from('profiles')
           .select('role')
           .eq('id', session.user.id)
-          .single()
+          .maybeSingle()
         if (data?.role === 'admin') router.replace('/dashboard')
         else router.replace('/technician')
       } else {
