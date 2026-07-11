@@ -5,11 +5,14 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { signUp } from '@/lib/actions'
 import { ShieldCheck, Eye, EyeOff, Loader2, Key, UserCheck, Wrench } from 'lucide-react'
+import SplashScreen from '@/components/splash-screen'
 
 type Mode = 'signin' | 'signup'
+type Page = 'splash' | 'auth'
 
 export default function HomePage() {
   const router = useRouter()
+  const [page, setPage] = useState<Page>('splash')
   const [mode, setMode] = useState<Mode>('signin')
   const [isAdminSignup, setIsAdminSignup] = useState(false)
   const [name, setName] = useState('')
@@ -35,6 +38,11 @@ export default function HomePage() {
         else router.replace('/technician')
       } else {
         setCheckingSession(false)
+        // Auto-transition from splash to auth after 3 seconds
+        const timer = setTimeout(() => {
+          setPage('auth')
+        }, 3000)
+        return () => clearTimeout(timer)
       }
     })
   }, [router])
@@ -94,6 +102,11 @@ export default function HomePage() {
       switchMode('signin')
       setLoading(false)
     }
+  }
+
+  // Show splash screen for first 3 seconds OR when checkingSession is true
+  if (checkingSession || page === 'splash') {
+    return <SplashScreen />
   }
 
   if (checkingSession) {
