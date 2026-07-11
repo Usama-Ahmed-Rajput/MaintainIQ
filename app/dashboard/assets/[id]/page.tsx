@@ -8,6 +8,7 @@ import { updateAsset } from '@/lib/actions'
 import type { Asset, Issue, HistoryEntry, Profile, AssetStatus, AssetCondition, AssetCategory } from '@/lib/types'
 import { ArrowLeft, Package, MapPin, Tag, Wrench, Calendar, Activity, QrCode, Copy, Check, Edit2, Save, X, ExternalLink, Loader2 } from 'lucide-react'
 import Link from 'next/link'
+import QrCodeDisplay from '@/components/qr-code-display'
 
 const STATUS_COLORS: Record<string, string> = {
   Operational: 'bg-green-100 text-green-700 border-green-200',
@@ -243,19 +244,26 @@ export default function AssetDetailPage() {
                 </div>
               )}
 
-              {/* Public link */}
-              <div className="mt-4 pt-4 border-t border-border flex items-center gap-3">
-                <QrCode className="w-4 h-4 text-muted-foreground" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-muted-foreground font-medium">Public Report URL</p>
-                  <p className="text-xs font-mono text-primary truncate">{typeof window !== 'undefined' ? `${window.location.origin}/asset/${asset.code}` : `/asset/${asset.code}`}</p>
+              {/* Public link + QR */}
+              <div className="mt-4 pt-4 border-t border-border space-y-4">
+                <div className="flex items-center gap-3">
+                  <QrCode className="w-4 h-4 text-muted-foreground" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-muted-foreground font-medium">Public Report URL</p>
+                    <p className="text-xs font-mono text-primary truncate">{typeof window !== 'undefined' ? `${window.location.origin}/asset/${asset.code}` : `/asset/${asset.code}`}</p>
+                  </div>
+                  <Link href={`/asset/${asset.code}`} target="_blank" className="p-1.5 hover:bg-muted rounded transition">
+                    <ExternalLink className="w-4 h-4 text-muted-foreground" />
+                  </Link>
+                  <button onClick={copyUrl} className="p-1.5 hover:bg-muted rounded transition">
+                    {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4 text-muted-foreground" />}
+                  </button>
                 </div>
-                <Link href={`/asset/${asset.code}`} target="_blank" className="p-1.5 hover:bg-muted rounded transition">
-                  <ExternalLink className="w-4 h-4 text-muted-foreground" />
-                </Link>
-                <button onClick={copyUrl} className="p-1.5 hover:bg-muted rounded transition">
-                  {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4 text-muted-foreground" />}
-                </button>
+
+                {/* QR Code */}
+                <div className="flex justify-center pt-2">
+                  <QrCodeDisplay assetCode={asset.code} assetName={asset.name} />
+                </div>
               </div>
             </>
           )}
