@@ -59,7 +59,10 @@ IMPORTANT: Return ONLY valid JSON, nothing else.`
       maintenanceSummary: triageData.maintenanceSummary || description,
     }
   } catch (error) {
-    console.error('[v0] AI Triage Error:', error)
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    console.error('[v0] AI Triage Error:', errorMsg)
+    console.error('[v0] API Key set:', !!apiKey)
+    console.error('[v0] Full error:', error)
     // Return default triage if API fails
     return {
       category: 'Other',
