@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import AppShell from '@/components/app-shell'
+import AnalyticsCharts from '@/components/analytics-charts'
 import { createClient } from '@/lib/supabase/client'
 import type { Asset, Issue } from '@/lib/types'
 import { Package, AlertTriangle, CheckCircle, Clock, TrendingUp, Activity, Wrench, BarChart3 } from 'lucide-react'
@@ -192,6 +193,12 @@ export default function DashboardPage() {
                   })}
                 </div>
               </div>
+            </div>
+
+            {/* Analytics Charts */}
+            <div>
+              <h2 className="font-semibold text-sm mb-4">Analytics & Trends</h2>
+              <AnalyticsCharts assets={assets} issues={issues} />
             </div>
 
             {/* Recent issues */}

@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { Profile } from '@/lib/types'
 import {
   LayoutDashboard, Package, AlertTriangle, History,
-  LogOut, Menu, X, ShieldCheck, Wrench, ChevronDown,
+  LogOut, Menu, X, ShieldCheck, Wrench, ChevronDown, Shield, Bell,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -77,9 +77,11 @@ export default function AppShell({ children, requireRole = 'any' }: AppShellProp
 
   const adminNav = [
     { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
+    { href: '/dashboard/alerts', label: 'Alerts', icon: Bell },
     { href: '/dashboard/assets', label: 'Assets', icon: Package },
     { href: '/dashboard/issues', label: 'Issues', icon: AlertTriangle },
     { href: '/dashboard/history', label: 'History', icon: History },
+    { href: '/dashboard/audit-logs', label: 'Audit Logs', icon: Shield },
   ]
   const techNav = [
     { href: '/technician', label: 'My Tasks', icon: Wrench },

@@ -353,6 +353,33 @@ export async function assignIssue(
   )
 }
 
+// ─── Audit Logs ───────────────────────────────────────────────────────────────
+// Using history_entries table with action='Admin Action' for audit trail
+
+export async function logAdminAction(
+  adminName: string,
+  action: string,
+  details: string,
+): Promise<void> {
+  const supabase = createClient()
+  await supabase.from('history_entries').insert({
+    asset_id: '00000000-0000-0000-0000-000000000000', // dummy UUID for system events
+    actor: adminName,
+    action: `[AUDIT] ${action}`,
+    details,
+  })
+}
+
+export async function getAuditLogs(): Promise<HistoryEntry[]> {
+  const supabase = createClient()
+  const { data } = await supabase
+    .from('history_entries')
+    .select('*')
+    .like('action', '%AUDIT%')
+    .order('created_at', { ascending: false })
+  return data ?? []
+}
+
 // ─── History ──────────────────────────────────────────────────────────────────
 
 export async function getHistory(): Promise<HistoryEntry[]> {
