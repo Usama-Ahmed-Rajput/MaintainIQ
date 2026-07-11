@@ -53,15 +53,50 @@ export default function PublicAssetPage() {
   async function handleTriage() {
     if (!complaint.trim() || !reporterName.trim() || !asset || typeof asset === 'string') return
     setTriaging(true)
-    await new Promise(r => setTimeout(r, 1200))
-    const suggestion = runAiTriage(complaint, asset)
-    setAiSuggestion(suggestion)
-    setIssueTitle(suggestion.title)
-    setIssueCategory(suggestion.category)
-    setIssuePriority(suggestion.priority)
-    setEditedByUser(false)
-    setTriaging(false)
-    setStep('triage')
+    try {
+      // Call Gemini API for real triage
+      const response = await fetch('/api/ai/triage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assetName: asset.name,
+          assetCategory: asset.category,
+          description: complaint,
+        }),
+      })
+      
+      if (!response.ok) throw new Error('Triage failed')
+      
+      const triageData = await response.json()
+      
+      // Map API response to suggestion format
+      const suggestion = {
+        title: triageData.maintenanceSummary,
+        category: triageData.category,
+        priority: triageData.priority,
+        possibleCauses: triageData.possibleCauses,
+        initialChecks: triageData.initialChecks,
+      }
+      
+      setAiSuggestion(suggestion)
+      setIssueTitle(suggestion.title)
+      setIssueCategory(suggestion.category as IssueCategory)
+      setIssuePriority(suggestion.priority as IssuePriority)
+      setEditedByUser(false)
+      setStep('triage')
+    } catch (error) {
+      console.error('[v0] Triage error:', error)
+      // Fallback if API fails
+      const suggestion = runAiTriage(complaint, asset)
+      setAiSuggestion(suggestion)
+      setIssueTitle(suggestion.title)
+      setIssueCategory(suggestion.category)
+      setIssuePriority(suggestion.priority)
+      setEditedByUser(false)
+      setStep('triage')
+    } finally {
+      setTriaging(false)
+    }
   }
 
   async function handleSubmitIssue() {
