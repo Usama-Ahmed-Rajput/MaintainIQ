@@ -43,25 +43,53 @@ export default function AppShell({ children, requireRole = 'any' }: AppShellProp
           return
         }
 
-        // If profile doesn't exist, create it (fallback for users created before trigger)
+        // If profile doesn't exist, try to create it (fallback for users created before trigger)
         if (!data) {
+          const defaultProfile = {
+            id: user.id,
+            name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+            role: (user.user_metadata?.role as 'admin' | 'technician') || 'technician',
+            created_at: new Date().toISOString(),
+            email: user.email ?? '',
+          }
+
           const { data: newProfile, error: createError } = await supabase
             .from('profiles')
             .insert({
               id: user.id,
-              name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-              role: user.user_metadata?.role || 'technician',
+              name: defaultProfile.name,
+              role: defaultProfile.role,
             })
             .select()
             .single()
 
-          if (createError || !newProfile) {
+          if (!isMounted) return
+
+          // If creation failed due to admin constraint, still proceed with default profile
+          // This allows technicians and other users to work even if admin slot is full
+          if (createError) {
+            if (createError.code === 'P0001' && createError.message.includes('admin')) {
+              // Admin constraint error - use default technician profile
+              const p: Profile = { ...defaultProfile, role: 'technician' }
+              if (requireRole !== 'any' && requireRole !== 'technician') {
+                router.replace('/technician')
+                return
+              }
+              setProfile(p)
+              setLoading(false)
+              return
+            }
             console.error('[v0] Profile creation error:', createError)
             router.replace('/')
             return
           }
 
-          if (!isMounted) return
+          if (!newProfile) {
+            console.error('[v0] Profile creation failed')
+            router.replace('/')
+            return
+          }
+
           const p: Profile = { ...newProfile, email: user.email ?? '' }
           setProfile(p)
           setLoading(false)
