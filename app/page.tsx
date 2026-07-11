@@ -2,124 +2,151 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { login, register, getCurrentUser } from '@/lib/store'
-import { Eye, EyeOff, ShieldCheck } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import { ShieldCheck, Eye, EyeOff, Loader2 } from 'lucide-react'
 
-export default function AuthPage() {
+type Mode = 'signin' | 'signup'
+
+export default function LoginPage() {
   const router = useRouter()
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [mode, setMode] = useState<Mode>('signin')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<'admin' | 'technician'>('technician')
-  const [showPass, setShowPass] = useState(false)
-  const [error, setError] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [checkingSession, setCheckingSession] = useState(true)
 
   useEffect(() => {
-    const user = getCurrentUser()
-    if (user) {
-      router.replace(user.role === 'admin' ? '/dashboard' : '/technician')
-    }
+    const supabase = createClient()
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session) {
+        const { data } = await supabase.from('profiles').select('role').eq('id', session.user.id).single()
+        if (data?.role === 'admin') router.replace('/dashboard')
+        else router.replace('/technician')
+      } else {
+        setCheckingSession(false)
+      }
+    })
   }, [router])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
+    setMessage('')
     setLoading(true)
-    await new Promise(r => setTimeout(r, 400))
 
-    if (mode === 'login') {
-      const user = login(email, password)
-      if (!user) {
-        setError('Invalid email or password.')
-      } else {
-        router.replace(user.role === 'admin' ? '/dashboard' : '/technician')
+    const supabase = createClient()
+
+    if (mode === 'signin') {
+      const { data, error: err } = await supabase.auth.signInWithPassword({ email, password })
+      if (err) {
+        setError(err.message)
+        setLoading(false)
+        return
+      }
+      if (data.user) {
+        const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).single()
+        if (profile?.role === 'admin') router.replace('/dashboard')
+        else router.replace('/technician')
       }
     } else {
-      if (!name.trim()) { setError('Name is required.'); setLoading(false); return }
-      const user = register(name, email, password, role)
-      if (!user) {
-        setError('An account with this email already exists.')
-      } else {
-        router.replace(user.role === 'admin' ? '/dashboard' : '/technician')
+      if (!name.trim()) {
+        setError('Name is required')
+        setLoading(false)
+        return
       }
+      const { error: err } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { name: name.trim(), role },
+        },
+      })
+      if (err) {
+        setError(err.message)
+        setLoading(false)
+        return
+      }
+      setMessage('Account created! Check your email to confirm, then sign in.')
+      setMode('signin')
+      setPassword('')
+      setLoading(false)
     }
-    setLoading(false)
   }
 
-  return (
-    <div className="min-h-screen flex">
-      {/* Left panel */}
-      <div className="hidden lg:flex flex-col justify-between w-2/5 bg-sidebar text-sidebar-foreground p-12">
-        <div>
-          <div className="flex items-center gap-3 mb-16">
-            <div className="w-9 h-9 bg-primary rounded-lg flex items-center justify-center">
-              <ShieldCheck className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <span className="text-xl font-bold tracking-tight">MaintainIQ</span>
-          </div>
-          <h1 className="text-3xl font-bold leading-tight text-balance mb-4">
-            Asset maintenance,<br />reimagined with AI.
-          </h1>
-          <p className="text-sidebar-foreground/70 leading-relaxed text-sm">
-            Scan. Report. Diagnose. Maintain. Give every physical asset a digital identity and a permanent service history.
-          </p>
-        </div>
-
-        <div className="space-y-3">
-          <p className="text-xs uppercase tracking-widest text-sidebar-foreground/40 font-semibold mb-2">Demo Credentials</p>
-          {[
-            { label: 'Administrator', email: 'admin@maintainiq.com', pass: 'admin123' },
-            { label: 'Technician (Ali Hassan)', email: 'ali@maintainiq.com', pass: 'tech123' },
-            { label: 'Technician (Sara Ahmed)', email: 'sara@maintainiq.com', pass: 'tech123' },
-          ].map(cred => (
-            <div
-              key={cred.email}
-              className="bg-sidebar-accent rounded-lg p-3 cursor-pointer hover:bg-sidebar-accent/60 transition-colors"
-              onClick={() => { setEmail(cred.email); setPassword(cred.pass); setMode('login') }}
-            >
-              <p className="text-sm font-semibold text-sidebar-foreground">{cred.label}</p>
-              <p className="text-xs text-sidebar-foreground/50 mt-0.5">{cred.email} &bull; {cred.pass}</p>
-            </div>
-          ))}
-        </div>
+  if (checkingSession) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
+    )
+  }
 
-      {/* Right panel */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-background">
-        <div className="w-full max-w-md">
-          {/* Mobile logo */}
-          <div className="flex items-center gap-2 mb-8 lg:hidden">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-              <ShieldCheck className="w-4 h-4 text-primary-foreground" />
-            </div>
-            <span className="text-lg font-bold">MaintainIQ</span>
+  const inputCls = "w-full border border-border rounded-lg px-3 py-2.5 text-sm bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition"
+
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+        {/* Logo */}
+        <div className="flex flex-col items-center mb-8">
+          <div className="w-12 h-12 bg-primary rounded-xl flex items-center justify-center mb-3 shadow-lg">
+            <ShieldCheck className="w-6 h-6 text-primary-foreground" />
+          </div>
+          <h1 className="text-2xl font-bold text-foreground">MaintainIQ</h1>
+          <p className="text-sm text-muted-foreground mt-1">Asset & Maintenance Management</p>
+        </div>
+
+        <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
+          {/* Tab switcher */}
+          <div className="flex bg-muted rounded-lg p-1 mb-6">
+            <button
+              onClick={() => { setMode('signin'); setError(''); setMessage('') }}
+              className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors ${
+                mode === 'signin' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              onClick={() => { setMode('signup'); setError(''); setMessage('') }}
+              className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors ${
+                mode === 'signup' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Sign Up
+            </button>
           </div>
 
-          <h2 className="text-2xl font-bold text-foreground mb-1">
-            {mode === 'login' ? 'Sign in to your account' : 'Create an account'}
-          </h2>
-          <p className="text-muted-foreground text-sm mb-8">
-            {mode === 'login'
-              ? 'Enter your credentials to access the platform.'
-              : 'Register to start managing assets.'}
-          </p>
+          {message && (
+            <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg p-3 text-sm mb-4">
+              {message}
+            </div>
+          )}
+          {error && (
+            <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-lg p-3 text-sm mb-4">
+              {error}
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {mode === 'register' && (
+            {mode === 'signup' && (
               <div>
                 <label className="block text-sm font-medium mb-1.5">Full Name</label>
                 <input
                   type="text"
                   value={name}
                   onChange={e => setName(e.target.value)}
-                  placeholder="John Smith"
-                  className="w-full border border-border rounded-md px-3 py-2.5 text-sm bg-card focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
+                  placeholder="Your full name"
+                  className={inputCls}
                   required
                 />
               </div>
             )}
+
             <div>
               <label className="block text-sm font-medium mb-1.5">Email</label>
               <input
@@ -127,71 +154,61 @@ export default function AuthPage() {
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="you@example.com"
-                className="w-full border border-border rounded-md px-3 py-2.5 text-sm bg-card focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
+                className={inputCls}
                 required
               />
             </div>
+
             <div>
               <label className="block text-sm font-medium mb-1.5">Password</label>
               <div className="relative">
                 <input
-                  type={showPass ? 'text' : 'password'}
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full border border-border rounded-md px-3 py-2.5 text-sm bg-card focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition pr-10"
+                  placeholder={mode === 'signup' ? 'At least 6 characters' : 'Your password'}
+                  className={`${inputCls} pr-10`}
                   required
                   minLength={6}
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPass(p => !p)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowPassword(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition"
                 >
-                  {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
-            {mode === 'register' && (
+            {mode === 'signup' && (
               <div>
                 <label className="block text-sm font-medium mb-1.5">Role</label>
                 <select
                   value={role}
                   onChange={e => setRole(e.target.value as 'admin' | 'technician')}
-                  className="w-full border border-border rounded-md px-3 py-2.5 text-sm bg-card focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
+                  className={inputCls}
                 >
+                  <option value="admin">Admin</option>
                   <option value="technician">Technician</option>
-                  <option value="admin">Administrator</option>
                 </select>
-              </div>
-            )}
-
-            {error && (
-              <div className="bg-destructive/10 border border-destructive/20 text-destructive text-sm rounded-md px-3 py-2.5">
-                {error}
               </div>
             )}
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-primary text-primary-foreground font-semibold py-2.5 rounded-md hover:bg-primary/90 transition disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full bg-primary text-primary-foreground py-2.5 rounded-lg font-semibold text-sm hover:bg-primary/90 transition disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
             >
-              {loading ? 'Please wait...' : mode === 'login' ? 'Sign In' : 'Create Account'}
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+              {mode === 'signin' ? 'Sign In' : 'Create Account'}
             </button>
           </form>
-
-          <p className="text-sm text-center mt-6 text-muted-foreground">
-            {mode === 'login' ? "Don't have an account?" : 'Already have an account?'}{' '}
-            <button
-              onClick={() => { setMode(m => m === 'login' ? 'register' : 'login'); setError('') }}
-              className="text-primary font-medium hover:underline"
-            >
-              {mode === 'login' ? 'Register' : 'Sign In'}
-            </button>
-          </p>
         </div>
+
+        <p className="text-center text-xs text-muted-foreground mt-4">
+          Secure facility management platform
+        </p>
       </div>
     </div>
   )

@@ -1,14 +1,5 @@
 export type UserRole = 'admin' | 'technician'
 
-export interface User {
-  id: string
-  name: string
-  email: string
-  password: string
-  role: UserRole
-  createdAt: string
-}
-
 export type AssetStatus =
   | 'Operational'
   | 'Issue Reported'
@@ -29,24 +20,7 @@ export type AssetCategory =
   | 'Security'
   | 'Other'
 
-export interface Asset {
-  id: string
-  code: string
-  name: string
-  category: AssetCategory
-  location: string
-  model?: string
-  serialNumber?: string
-  condition: 'Good' | 'Fair' | 'Poor' | 'Critical'
-  status: AssetStatus
-  assignedTechnicianId?: string
-  purchaseDate?: string
-  lastServiceDate?: string
-  nextServiceDate?: string
-  notes?: string
-  createdAt: string
-  updatedAt: string
-}
+export type AssetCondition = 'Good' | 'Fair' | 'Poor' | 'Critical'
 
 export type IssueStatus =
   | 'Reported'
@@ -71,56 +45,70 @@ export type IssueCategory =
   | 'Structural'
   | 'Other'
 
-export interface MaintenanceRecord {
-  inspectionFindings: string
-  workPerformed: string
-  parts: string
-  cost: number
-  timeSpent: number
-  finalCondition: Asset['condition']
-  completedAt: string
-  technicianId: string
+export interface Profile {
+  id: string
+  name: string
+  role: UserRole
+  created_at: string
+  email?: string // joined from auth.users when needed
+}
+
+export interface Asset {
+  id: string
+  code: string
+  name: string
+  category: AssetCategory
+  location: string
+  model?: string
+  serial_number?: string
+  condition: AssetCondition
+  status: AssetStatus
+  assigned_technician_id?: string
+  purchase_date?: string
+  last_service_date?: string
+  next_service_date?: string
+  notes?: string
+  created_by?: string
+  created_at: string
+  updated_at: string
 }
 
 export interface Issue {
   id: string
-  issueNumber: string
-  assetId: string
+  issue_number: string
+  asset_id: string
   title: string
   description: string
   category: IssueCategory
   priority: IssuePriority
   status: IssueStatus
-  reporterName: string
-  reporterContact: string
-  assignedTechnicianId?: string
-  maintenanceRecord?: MaintenanceRecord
-  aiSuggested: boolean
-  aiEditedByUser: boolean
-  possibleCauses?: string[]
-  initialChecks?: string[]
-  recurringWarning?: string
-  maintenanceSummary?: string
-  evidenceUrl?: string
-  createdAt: string
-  updatedAt: string
-  resolvedAt?: string
+  reporter_name: string
+  reporter_contact: string
+  assigned_technician_id?: string
+  inspection_findings?: string
+  work_performed?: string
+  parts_used?: string
+  cost?: number
+  time_spent?: number
+  final_condition?: string
+  completed_at?: string
+  ai_suggested: boolean
+  ai_edited_by_user: boolean
+  possible_causes?: string[]
+  initial_checks?: string[]
+  recurring_warning?: string
+  maintenance_summary?: string
+  created_at: string
+  updated_at: string
+  resolved_at?: string
 }
 
 export interface HistoryEntry {
   id: string
-  assetId: string
-  issueId?: string
+  asset_id: string
+  issue_id?: string
   actor: string
   action: string
   details: string
-  createdAt: string
-}
-
-export interface AppData {
-  users: User[]
-  assets: Asset[]
-  issues: Issue[]
-  history: HistoryEntry[]
-  currentUserId?: string
+  created_at: string
 }

@@ -2,197 +2,241 @@
 
 import { useEffect, useState } from 'react'
 import AppShell from '@/components/app-shell'
-import { getData } from '@/lib/store'
-import type { AppData } from '@/lib/types'
+import { createClient } from '@/lib/supabase/client'
+import type { Asset, Issue } from '@/lib/types'
+import { Package, AlertTriangle, CheckCircle, Clock, TrendingUp, Activity, Wrench, BarChart3 } from 'lucide-react'
 import Link from 'next/link'
-import {
-  Package,
-  AlertCircle,
-  CheckCircle,
-  Clock,
-  TrendingUp,
-  ArrowRight,
-  Wrench,
-  AlertTriangle,
-  Activity,
-} from 'lucide-react'
-
-const statusColors: Record<string, string> = {
-  Operational: 'bg-green-100 text-green-700',
-  'Issue Reported': 'bg-yellow-100 text-yellow-700',
-  'Under Inspection': 'bg-blue-100 text-blue-700',
-  'Under Maintenance': 'bg-orange-100 text-orange-700',
-  'Out of Service': 'bg-red-100 text-red-700',
-  Retired: 'bg-gray-100 text-gray-500',
-}
-
-const priorityColors: Record<string, string> = {
-  Low: 'bg-gray-100 text-gray-600',
-  Medium: 'bg-blue-100 text-blue-700',
-  High: 'bg-orange-100 text-orange-700',
-  Critical: 'bg-red-100 text-red-700',
-}
-
-const issueStatusColors: Record<string, string> = {
-  Reported: 'bg-yellow-100 text-yellow-700',
-  Assigned: 'bg-blue-100 text-blue-700',
-  'Inspection Started': 'bg-indigo-100 text-indigo-700',
-  'Maintenance In Progress': 'bg-orange-100 text-orange-700',
-  'Waiting for Parts': 'bg-purple-100 text-purple-700',
-  Resolved: 'bg-green-100 text-green-700',
-  Closed: 'bg-gray-100 text-gray-500',
-  Reopened: 'bg-red-100 text-red-700',
-}
-
-function StatCard({ title, value, sub, icon: Icon, color }: {
-  title: string; value: number | string; sub?: string; icon: React.ElementType; color: string
-}) {
-  return (
-    <div className="bg-card border border-border rounded-xl p-5">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
-          <p className="text-3xl font-bold mt-1 text-foreground">{value}</p>
-          {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
-        </div>
-        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${color}`}>
-          <Icon className="w-5 h-5" />
-        </div>
-      </div>
-    </div>
-  )
-}
 
 export default function DashboardPage() {
-  const [data, setData] = useState<AppData | null>(null)
+  const [assets, setAssets] = useState<Asset[]>([])
+  const [issues, setIssues] = useState<Issue[]>([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    setData(getData())
+    const supabase = createClient()
+    Promise.all([
+      supabase.from('assets').select('*'),
+      supabase.from('issues').select('*').order('created_at', { ascending: false }),
+    ]).then(([{ data: a }, { data: i }]) => {
+      setAssets(a ?? [])
+      setIssues(i ?? [])
+      setLoading(false)
+    })
   }, [])
 
-  if (!data) return null
-
-  const { assets, issues, users, history } = data
-
-  const openIssues = issues.filter(i => !['Resolved', 'Closed'].includes(i.status))
-  const criticalIssues = issues.filter(i => i.priority === 'Critical' && !['Resolved', 'Closed'].includes(i.status))
+  const totalAssets = assets.length
+  const operationalAssets = assets.filter(a => a.status === 'Operational').length
+  const openIssues = issues.filter(i => !['Resolved', 'Closed'].includes(i.status)).length
+  const criticalIssues = issues.filter(i => i.priority === 'Critical' && !['Resolved', 'Closed'].includes(i.status)).length
   const resolvedThisMonth = issues.filter(i => {
-    if (!i.resolvedAt) return false
-    const d = new Date(i.resolvedAt)
+    if (!['Resolved', 'Closed'].includes(i.status)) return false
+    const d = new Date(i.updated_at)
     const now = new Date()
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-  })
-  const technicians = users.filter(u => u.role === 'technician')
+  }).length
 
-  const recentHistory = [...history]
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 8)
+  const recentIssues = issues.slice(0, 6)
 
-  const activeIssues = issues
-    .filter(i => !['Resolved', 'Closed'].includes(i.status))
-    .sort((a, b) => {
-      const pri = { Critical: 4, High: 3, Medium: 2, Low: 1 }
-      return (pri[b.priority] || 0) - (pri[a.priority] || 0)
-    })
-    .slice(0, 5)
+  const statusColor = (status: string) => {
+    const m: Record<string, string> = {
+      Operational: 'bg-green-100 text-green-700',
+      'Issue Reported': 'bg-yellow-100 text-yellow-700',
+      'Under Inspection': 'bg-blue-100 text-blue-700',
+      'Under Maintenance': 'bg-orange-100 text-orange-700',
+      'Out of Service': 'bg-red-100 text-red-700',
+      Retired: 'bg-gray-100 text-gray-500',
+    }
+    return m[status] ?? 'bg-muted text-muted-foreground'
+  }
+
+  const priorityColor = (p: string) => {
+    if (p === 'Critical') return 'text-red-600 bg-red-50 border-red-200'
+    if (p === 'High') return 'text-orange-600 bg-orange-50 border-orange-200'
+    if (p === 'Medium') return 'text-yellow-600 bg-yellow-50 border-yellow-200'
+    return 'text-green-600 bg-green-50 border-green-200'
+  }
+
+  const assetConditionStats = {
+    Good: assets.filter(a => a.condition === 'Good').length,
+    Fair: assets.filter(a => a.condition === 'Fair').length,
+    Poor: assets.filter(a => a.condition === 'Poor').length,
+    Critical: assets.filter(a => a.condition === 'Critical').length,
+  }
 
   return (
     <AppShell requireRole="admin">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
+      <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Operational overview of all assets and maintenance activity.</p>
+          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">Facility asset and maintenance overview.</p>
         </div>
 
-        {/* Stat cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard title="Total Assets" value={assets.length} sub={`${assets.filter(a => a.status === 'Operational').length} operational`} icon={Package} color="bg-primary/10 text-primary" />
-          <StatCard title="Open Issues" value={openIssues.length} sub={`${criticalIssues.length} critical`} icon={AlertCircle} color="bg-orange-100 text-orange-600" />
-          <StatCard title="Technicians" value={technicians.length} sub="active members" icon={Wrench} color="bg-green-100 text-green-600" />
-          <StatCard title="Resolved" value={resolvedThisMonth.length} sub="this month" icon={CheckCircle} color="bg-blue-100 text-blue-600" />
-        </div>
-
-        {/* Asset status breakdown */}
-        <div className="bg-card border border-border rounded-xl p-5">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">Asset Status Breakdown</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            {(['Operational', 'Issue Reported', 'Under Inspection', 'Under Maintenance', 'Out of Service', 'Retired'] as const).map(status => {
-              const count = assets.filter(a => a.status === status).length
-              return (
-                <div key={status} className={`rounded-lg px-3 py-3 text-center ${statusColors[status] || 'bg-muted text-muted-foreground'}`}>
-                  <p className="text-2xl font-bold">{count}</p>
-                  <p className="text-xs font-medium mt-0.5 leading-tight">{status}</p>
-                </div>
-              )
-            })}
+        {loading ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="bg-card border border-border rounded-xl p-5 animate-pulse">
+                <div className="h-4 bg-muted rounded w-1/2 mb-3" />
+                <div className="h-8 bg-muted rounded w-1/3" />
+              </div>
+            ))}
           </div>
-        </div>
+        ) : (
+          <>
+            {/* KPI cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-card border border-border rounded-xl p-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <Package className="w-4 h-4 text-blue-600" />
+                  </div>
+                  <span className="text-sm text-muted-foreground font-medium">Total Assets</span>
+                </div>
+                <p className="text-3xl font-bold">{totalAssets}</p>
+                <p className="text-xs text-muted-foreground mt-1">{operationalAssets} operational</p>
+              </div>
 
-        <div className="grid lg:grid-cols-2 gap-6">
-          {/* Active issues */}
-          <div className="bg-card border border-border rounded-xl p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Active Issues</h2>
-              <Link href="/dashboard/issues" className="text-xs text-primary hover:underline flex items-center gap-1">
-                View all <ArrowRight className="w-3 h-3" />
-              </Link>
+              <div className="bg-card border border-border rounded-xl p-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 bg-yellow-100 rounded-lg flex items-center justify-center">
+                    <AlertTriangle className="w-4 h-4 text-yellow-600" />
+                  </div>
+                  <span className="text-sm text-muted-foreground font-medium">Open Issues</span>
+                </div>
+                <p className="text-3xl font-bold">{openIssues}</p>
+                <p className="text-xs text-muted-foreground mt-1">{criticalIssues} critical</p>
+              </div>
+
+              <div className="bg-card border border-border rounded-xl p-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                    <CheckCircle className="w-4 h-4 text-green-600" />
+                  </div>
+                  <span className="text-sm text-muted-foreground font-medium">Resolved</span>
+                </div>
+                <p className="text-3xl font-bold">{resolvedThisMonth}</p>
+                <p className="text-xs text-muted-foreground mt-1">this month</p>
+              </div>
+
+              <div className="bg-card border border-border rounded-xl p-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
+                    <TrendingUp className="w-4 h-4 text-primary" />
+                  </div>
+                  <span className="text-sm text-muted-foreground font-medium">Health</span>
+                </div>
+                <p className="text-3xl font-bold">
+                  {totalAssets > 0 ? Math.round((operationalAssets / totalAssets) * 100) : 0}
+                  <span className="text-lg font-medium text-muted-foreground">%</span>
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">asset uptime rate</p>
+              </div>
             </div>
-            {activeIssues.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6">No active issues.</p>
-            ) : (
-              <div className="space-y-3">
-                {activeIssues.map(issue => {
-                  const asset = assets.find(a => a.id === issue.assetId)
-                  return (
-                    <Link
-                      key={issue.id}
-                      href={`/dashboard/issues/${issue.id}`}
-                      className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors border border-border/50"
-                    >
-                      <AlertTriangle className={`w-4 h-4 mt-0.5 flex-shrink-0 ${issue.priority === 'Critical' ? 'text-red-500' : issue.priority === 'High' ? 'text-orange-500' : 'text-yellow-500'}`} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{issue.title}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">{asset?.name || 'Unknown Asset'}</p>
-                        <div className="flex gap-1.5 mt-1.5">
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${priorityColors[issue.priority]}`}>{issue.priority}</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${issueStatusColors[issue.status]}`}>{issue.status}</span>
+
+            {/* Asset condition breakdown */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-card border border-border rounded-xl p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="font-semibold text-sm">Asset Condition</h2>
+                  <BarChart3 className="w-4 h-4 text-muted-foreground" />
+                </div>
+                <div className="space-y-3">
+                  {Object.entries(assetConditionStats).map(([condition, count]) => {
+                    const colors: Record<string, string> = {
+                      Good: 'bg-green-500',
+                      Fair: 'bg-yellow-500',
+                      Poor: 'bg-orange-500',
+                      Critical: 'bg-red-500',
+                    }
+                    const pct = totalAssets > 0 ? Math.round((count / totalAssets) * 100) : 0
+                    return (
+                      <div key={condition}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium">{condition}</span>
+                          <span className="text-xs text-muted-foreground">{count} ({pct}%)</span>
+                        </div>
+                        <div className="h-2 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${colors[condition]}`}
+                            style={{ width: `${pct}%` }}
+                          />
                         </div>
                       </div>
-                    </Link>
-                  )
-                })}
+                    )
+                  })}
+                </div>
+                <Link href="/dashboard/assets" className="mt-4 block text-xs font-semibold text-primary hover:underline">
+                  View all assets &rarr;
+                </Link>
               </div>
-            )}
-          </div>
 
-          {/* Recent activity */}
-          <div className="bg-card border border-border rounded-xl p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Recent Activity</h2>
-              <Link href="/dashboard/history" className="text-xs text-primary hover:underline flex items-center gap-1">
-                View all <ArrowRight className="w-3 h-3" />
-              </Link>
+              <div className="bg-card border border-border rounded-xl p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="font-semibold text-sm">Asset Status</h2>
+                  <Activity className="w-4 h-4 text-muted-foreground" />
+                </div>
+                <div className="space-y-2">
+                  {[
+                    { label: 'Operational', key: 'Operational', color: 'bg-green-100 text-green-700' },
+                    { label: 'Issue Reported', key: 'Issue Reported', color: 'bg-yellow-100 text-yellow-700' },
+                    { label: 'Under Inspection', key: 'Under Inspection', color: 'bg-blue-100 text-blue-700' },
+                    { label: 'Under Maintenance', key: 'Under Maintenance', color: 'bg-orange-100 text-orange-700' },
+                    { label: 'Out of Service', key: 'Out of Service', color: 'bg-red-100 text-red-700' },
+                  ].map(({ label, key, color }) => {
+                    const count = assets.filter(a => a.status === key).length
+                    return (
+                      <div key={key} className="flex items-center justify-between">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${color}`}>{label}</span>
+                        <span className="text-sm font-bold">{count}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
             </div>
-            <div className="space-y-3">
-              {recentHistory.map(entry => {
-                const asset = assets.find(a => a.id === entry.assetId)
-                return (
-                  <div key={entry.id} className="flex gap-3">
-                    <div className="w-2 h-2 rounded-full bg-primary mt-1.5 flex-shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium">{entry.action}</p>
-                      <p className="text-xs text-muted-foreground">{asset?.name} &bull; {entry.actor}</p>
-                      <p className="text-[10px] text-muted-foreground/60 mt-0.5">
-                        {new Date(entry.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                    </div>
-                  </div>
-                )
-              })}
+
+            {/* Recent issues */}
+            <div className="bg-card border border-border rounded-xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-semibold text-sm">Recent Issues</h2>
+                <Link href="/dashboard/issues" className="text-xs font-semibold text-primary hover:underline">
+                  View all &rarr;
+                </Link>
+              </div>
+              {recentIssues.length === 0 ? (
+                <div className="text-center py-8">
+                  <Wrench className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">No issues reported yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {recentIssues.map(issue => {
+                    const asset = assets.find(a => a.id === issue.asset_id)
+                    return (
+                      <Link
+                        key={issue.id}
+                        href={`/dashboard/issues/${issue.id}`}
+                        className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition group"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate group-hover:text-primary transition">{issue.title}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{asset?.name ?? 'Unknown Asset'} &middot; {new Date(issue.created_at).toLocaleDateString()}</p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${priorityColor(issue.priority)}`}>
+                            {issue.priority}
+                          </span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${statusColor(issue.status)}`}>
+                            {issue.status}
+                          </span>
+                        </div>
+                      </Link>
+                    )
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        </div>
+          </>
+        )}
       </div>
     </AppShell>
   )

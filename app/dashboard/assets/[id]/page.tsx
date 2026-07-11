@@ -1,36 +1,36 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import AppShell from '@/components/app-shell'
-import { getData, updateAsset, getTechnicians, getPublicAssetUrl } from '@/lib/store'
-import type { Asset, Issue, HistoryEntry, User } from '@/lib/types'
+import { createClient } from '@/lib/supabase/client'
+import { updateAsset } from '@/lib/actions'
+import type { Asset, Issue, HistoryEntry, Profile, AssetStatus, AssetCondition, AssetCategory } from '@/lib/types'
+import { ArrowLeft, Package, MapPin, Tag, Wrench, Calendar, Activity, QrCode, Copy, Check, Edit2, Save, X, ExternalLink, Loader2 } from 'lucide-react'
 import Link from 'next/link'
-import QRCode from 'qrcode'
-import {
-  ArrowLeft, Edit2, Save, X, QrCode, Download, Copy, ExternalLink,
-  AlertCircle, Clock, Package, Printer
-} from 'lucide-react'
 
-const statusColors: Record<string, string> = {
-  Operational: 'bg-green-100 text-green-700',
-  'Issue Reported': 'bg-yellow-100 text-yellow-700',
-  'Under Inspection': 'bg-blue-100 text-blue-700',
-  'Under Maintenance': 'bg-orange-100 text-orange-700',
-  'Out of Service': 'bg-red-100 text-red-700',
-  Retired: 'bg-gray-100 text-gray-500',
+const STATUS_COLORS: Record<string, string> = {
+  Operational: 'bg-green-100 text-green-700 border-green-200',
+  'Issue Reported': 'bg-yellow-100 text-yellow-700 border-yellow-200',
+  'Under Inspection': 'bg-blue-100 text-blue-700 border-blue-200',
+  'Under Maintenance': 'bg-orange-100 text-orange-700 border-orange-200',
+  'Out of Service': 'bg-red-100 text-red-700 border-red-200',
+  Retired: 'bg-gray-100 text-gray-500 border-gray-200',
 }
 
-const issueStatusColors: Record<string, string> = {
-  Reported: 'bg-yellow-100 text-yellow-700',
-  Assigned: 'bg-blue-100 text-blue-700',
-  'Inspection Started': 'bg-indigo-100 text-indigo-700',
-  'Maintenance In Progress': 'bg-orange-100 text-orange-700',
-  'Waiting for Parts': 'bg-purple-100 text-purple-700',
-  Resolved: 'bg-green-100 text-green-700',
-  Closed: 'bg-gray-100 text-gray-500',
-  Reopened: 'bg-red-100 text-red-700',
+const PRIORITY_COLORS: Record<string, string> = {
+  Critical: 'bg-red-100 text-red-700',
+  High: 'bg-orange-100 text-orange-700',
+  Medium: 'bg-yellow-100 text-yellow-700',
+  Low: 'bg-green-100 text-green-700',
 }
+
+const CATEGORIES: AssetCategory[] = [
+  'HVAC', 'Electrical', 'Plumbing', 'IT Equipment',
+  'Furniture', 'Vehicle', 'Generator', 'Fire Safety', 'Security', 'Other',
+]
+const CONDITIONS: AssetCondition[] = ['Good', 'Fair', 'Poor', 'Critical']
+const STATUSES: AssetStatus[] = ['Operational', 'Issue Reported', 'Under Inspection', 'Under Maintenance', 'Out of Service', 'Retired']
 
 export default function AssetDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -38,334 +38,283 @@ export default function AssetDetailPage() {
   const [asset, setAsset] = useState<Asset | null>(null)
   const [issues, setIssues] = useState<Issue[]>([])
   const [history, setHistory] = useState<HistoryEntry[]>([])
-  const [technicians, setTechnicians] = useState<User[]>([])
+  const [technicians, setTechnicians] = useState<Profile[]>([])
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
-  const [editForm, setEditForm] = useState<Partial<Asset>>({})
-  const [qrDataUrl, setQrDataUrl] = useState('')
+  const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [activeTab, setActiveTab] = useState<'details' | 'issues' | 'history' | 'qr'>('details')
-  const labelRef = useRef<HTMLDivElement>(null)
+
+  const [editForm, setEditForm] = useState<Partial<Asset>>({})
 
   useEffect(() => {
-    const data = getData()
-    const found = data.assets.find(a => a.id === id)
-    if (!found) { router.replace('/dashboard/assets'); return }
-    setAsset(found)
-    setEditForm(found)
-    setIssues(data.issues.filter(i => i.assetId === id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
-    setHistory(data.history.filter(h => h.assetId === id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
-    setTechnicians(getTechnicians())
-
-    const url = getPublicAssetUrl(found.code)
-    QRCode.toDataURL(url, { width: 200, margin: 2, color: { dark: '#1e293b', light: '#ffffff' } })
-      .then(setQrDataUrl)
+    const supabase = createClient()
+    async function load() {
+      const [{ data: a }, { data: i }, { data: h }, { data: t }, { data: { user } }] = await Promise.all([
+        supabase.from('assets').select('*').eq('id', id).single(),
+        supabase.from('issues').select('*').eq('asset_id', id).order('created_at', { ascending: false }),
+        supabase.from('history_entries').select('*').eq('asset_id', id).order('created_at', { ascending: false }),
+        supabase.from('profiles').select('*').eq('role', 'technician'),
+        supabase.auth.getUser(),
+      ])
+      if (!a) { router.replace('/dashboard/assets'); return }
+      setAsset(a)
+      setIssues(i ?? [])
+      setHistory(h ?? [])
+      setTechnicians(t ?? [])
+      if (user) {
+        const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).single()
+        if (p) setProfile({ ...p, email: user.email })
+      }
+      setLoading(false)
+    }
+    load()
   }, [id, router])
 
-  function handleSave() {
+  function startEdit() {
     if (!asset) return
-    const updated = updateAsset(asset.id, editForm)
-    if (updated) { setAsset(updated); setEditing(false) }
+    setEditForm({ ...asset })
+    setEditing(true)
   }
 
-  function handleCopyLink() {
+  async function saveEdit() {
+    if (!asset || !editForm) return
+    setSaving(true)
+    const { name, category, location, model, serial_number, condition, status, purchase_date, last_service_date, next_service_date, notes } = editForm
+    const { data } = await updateAsset(asset.id, {
+      name, category, location, model, serial_number, condition, status,
+      purchase_date: purchase_date || undefined,
+      last_service_date: last_service_date || undefined,
+      next_service_date: next_service_date || undefined,
+      notes,
+    }, profile?.name ?? 'Admin')
+    if (data) {
+      setAsset(data)
+      // Reload history
+      const supabase = createClient()
+      const { data: h } = await supabase.from('history_entries').select('*').eq('asset_id', id).order('created_at', { ascending: false })
+      setHistory(h ?? [])
+    }
+    setSaving(false)
+    setEditing(false)
+  }
+
+  function copyUrl() {
     if (!asset) return
-    navigator.clipboard.writeText(getPublicAssetUrl(asset.code))
+    navigator.clipboard.writeText(`${window.location.origin}/asset/${asset.code}`)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
 
-  function handleDownloadQR() {
-    if (!qrDataUrl) return
-    const link = document.createElement('a')
-    link.href = qrDataUrl
-    link.download = `${asset?.code}-qr.png`
-    link.click()
+  if (loading || !asset) {
+    return (
+      <AppShell requireRole="admin">
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-7 h-7 animate-spin text-muted-foreground" />
+        </div>
+      </AppShell>
+    )
   }
 
-  function handlePrintLabel() {
-    if (!labelRef.current || !qrDataUrl || !asset) return
-    const win = window.open('', '_blank')
-    if (!win) return
-    win.document.write(`
-      <html><head><title>Asset Label - ${asset.code}</title>
-      <style>
-        body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #f0f0f0; }
-        .label { background: white; border: 2px solid #1e293b; border-radius: 8px; padding: 20px; width: 300px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        .org { font-size: 11px; font-weight: bold; color: #64748b; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px; }
-        .name { font-size: 16px; font-weight: bold; color: #1e293b; margin-bottom: 4px; }
-        .code { font-size: 13px; font-weight: bold; color: #3b5bdb; margin-bottom: 4px; font-family: monospace; }
-        .loc { font-size: 11px; color: #64748b; margin-bottom: 12px; }
-        img { width: 140px; height: 140px; margin: 0 auto 10px; display: block; }
-        .scan { font-size: 10px; color: #94a3b8; }
-      </style></head><body>
-      <div class="label">
-        <p class="org">MaintainIQ</p>
-        <p class="name">${asset.name}</p>
-        <p class="code">${asset.code}</p>
-        <p class="loc">${asset.location}</p>
-        <img src="${qrDataUrl}" alt="QR Code" />
-        <p class="scan">Scan to view asset details and report issues</p>
-      </div>
-      </body></html>
-    `)
-    win.document.close()
-    win.print()
-  }
+  const openIssues = issues.filter(i => !['Resolved', 'Closed'].includes(i.status))
 
-  if (!asset) return null
-
-  const publicUrl = getPublicAssetUrl(asset.code)
-  const techs = technicians
-  const assignedTech = techs.find(t => t.id === asset.assignedTechnicianId)
-
-  const inputCls = "w-full border border-border rounded-md px-3 py-1.5 text-sm bg-card focus:outline-none focus:ring-2 focus:ring-primary/30"
-  const CATEGORIES = ['HVAC', 'Electrical', 'Plumbing', 'IT Equipment', 'Furniture', 'Vehicle', 'Generator', 'Fire Safety', 'Security', 'Other']
-  const STATUSES = ['Operational', 'Issue Reported', 'Under Inspection', 'Under Maintenance', 'Out of Service', 'Retired']
+  const inputCls = "w-full border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
 
   return (
     <AppShell requireRole="admin">
       <div className="max-w-4xl mx-auto space-y-5">
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <Link href="/dashboard/assets" className="text-muted-foreground hover:text-foreground mt-1">
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-xl font-bold">{asset.name}</h1>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${statusColors[asset.status]}`}>{asset.status}</span>
+        <div className="flex items-start gap-3">
+          <Link href="/dashboard/assets" className="p-1.5 rounded-lg hover:bg-muted transition text-muted-foreground mt-1">
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h1 className="text-2xl font-bold truncate">{asset.name}</h1>
+                <p className="text-sm font-mono text-muted-foreground mt-0.5">{asset.code}</p>
               </div>
-              <p className="text-sm text-muted-foreground font-mono mt-0.5">{asset.code} &bull; {asset.category} &bull; {asset.location}</p>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className={`text-xs px-2.5 py-1 rounded-full border font-semibold ${STATUS_COLORS[asset.status]}`}>
+                  {asset.status}
+                </span>
+                {!editing && (
+                  <button onClick={startEdit} className="flex items-center gap-1.5 text-xs border border-border px-3 py-1.5 rounded-lg hover:bg-muted transition font-medium">
+                    <Edit2 className="w-3.5 h-3.5" /> Edit
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-          <div className="flex gap-2">
-            {editing ? (
-              <>
-                <button onClick={handleSave} className="flex items-center gap-1.5 bg-primary text-primary-foreground px-3 py-1.5 rounded-md text-sm font-medium hover:bg-primary/90 transition">
-                  <Save className="w-3.5 h-3.5" /> Save
-                </button>
-                <button onClick={() => { setEditing(false); setEditForm(asset) }} className="flex items-center gap-1.5 border border-border px-3 py-1.5 rounded-md text-sm font-medium hover:bg-muted transition">
-                  <X className="w-3.5 h-3.5" /> Cancel
-                </button>
-              </>
-            ) : (
-              <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 border border-border px-3 py-1.5 rounded-md text-sm font-medium hover:bg-muted transition">
-                <Edit2 className="w-3.5 h-3.5" /> Edit
-              </button>
-            )}
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-0 border-b border-border">
-          {(['details', 'issues', 'history', 'qr'] as const).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2.5 text-sm font-medium capitalize border-b-2 transition -mb-px ${
-                activeTab === tab ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {tab === 'qr' ? 'QR Code' : tab.charAt(0).toUpperCase() + tab.slice(1)}
-              {tab === 'issues' && <span className="ml-1.5 text-[10px] bg-muted px-1.5 py-0.5 rounded-full">{issues.length}</span>}
-            </button>
-          ))}
-        </div>
-
-        {/* Details tab */}
-        {activeTab === 'details' && (
-          <div className="bg-card border border-border rounded-xl p-6">
-            <div className="grid sm:grid-cols-2 gap-5">
-              {editing ? (
-                <>
-                  <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Asset Name</label>
-                    <input className={inputCls} value={editForm.name || ''} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Category</label>
-                    <select className={inputCls} value={editForm.category || ''} onChange={e => setEditForm(f => ({ ...f, category: e.target.value as any }))}>
-                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Location</label>
-                    <input className={inputCls} value={editForm.location || ''} onChange={e => setEditForm(f => ({ ...f, location: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Condition</label>
-                    <select className={inputCls} value={editForm.condition || ''} onChange={e => setEditForm(f => ({ ...f, condition: e.target.value as any }))}>
-                      {['Good', 'Fair', 'Poor', 'Critical'].map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Status</label>
-                    <select className={inputCls} value={editForm.status || ''} onChange={e => setEditForm(f => ({ ...f, status: e.target.value as any }))}>
-                      {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Assigned Technician</label>
-                    <select className={inputCls} value={editForm.assignedTechnicianId || ''} onChange={e => setEditForm(f => ({ ...f, assignedTechnicianId: e.target.value }))}>
-                      <option value="">Unassigned</option>
-                      {techs.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Last Service Date</label>
-                    <input type="date" className={inputCls} value={editForm.lastServiceDate || ''} onChange={e => setEditForm(f => ({ ...f, lastServiceDate: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Next Service Date</label>
-                    <input type="date" className={inputCls} value={editForm.nextServiceDate || ''} onChange={e => setEditForm(f => ({ ...f, nextServiceDate: e.target.value }))} />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Notes</label>
-                    <textarea rows={3} className={inputCls} value={editForm.notes || ''} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} />
-                  </div>
-                </>
-              ) : (
-                <>
-                  {[
-                    { label: 'Asset Code', value: asset.code },
-                    { label: 'Category', value: asset.category },
-                    { label: 'Location', value: asset.location },
-                    { label: 'Condition', value: asset.condition },
-                    { label: 'Status', value: asset.status },
-                    { label: 'Model', value: asset.model || '—' },
-                    { label: 'Serial Number', value: asset.serialNumber || '—' },
-                    { label: 'Assigned To', value: assignedTech?.name || 'Unassigned' },
-                    { label: 'Purchase Date', value: asset.purchaseDate ? new Date(asset.purchaseDate).toLocaleDateString() : '—' },
-                    { label: 'Last Service', value: asset.lastServiceDate ? new Date(asset.lastServiceDate).toLocaleDateString() : '—' },
-                    { label: 'Next Service', value: asset.nextServiceDate ? new Date(asset.nextServiceDate).toLocaleDateString() : '—' },
-                    { label: 'Registered', value: new Date(asset.createdAt).toLocaleDateString() },
-                  ].map(({ label, value }) => (
-                    <div key={label}>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">{label}</p>
-                      <p className="text-sm font-medium">{value}</p>
-                    </div>
-                  ))}
-                  {asset.notes && (
-                    <div className="sm:col-span-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Notes</p>
-                      <p className="text-sm">{asset.notes}</p>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Issues tab */}
-        {activeTab === 'issues' && (
-          <div className="space-y-3">
-            <div className="flex justify-between items-center">
-              <p className="text-sm text-muted-foreground">{issues.length} issue(s) reported against this asset</p>
-            </div>
-            {issues.length === 0 ? (
-              <div className="text-center py-12 bg-card border border-border rounded-xl">
-                <AlertCircle className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                <p className="text-sm font-medium">No issues reported</p>
-              </div>
-            ) : (
-              issues.map(issue => (
-                <Link key={issue.id} href={`/dashboard/issues/${issue.id}`} className="block bg-card border border-border rounded-xl p-4 hover:border-primary/30 transition">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium text-sm">{issue.title}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5 font-mono">{issue.issueNumber}</p>
-                    </div>
-                    <div className="flex gap-1.5 flex-shrink-0">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${issueStatusColors[issue.status]}`}>{issue.status}</span>
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-2">{new Date(issue.createdAt).toLocaleDateString()} by {issue.reporterName}</p>
-                </Link>
-              ))
-            )}
-          </div>
-        )}
-
-        {/* History tab */}
-        {activeTab === 'history' && (
-          <div className="bg-card border border-border rounded-xl p-5">
-            {history.length === 0 ? (
-              <div className="text-center py-8">
-                <Clock className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">No history entries yet.</p>
-              </div>
-            ) : (
-              <div className="relative pl-5">
-                <div className="absolute left-2 top-0 bottom-0 w-px bg-border" />
-                <div className="space-y-5">
-                  {history.map(entry => (
-                    <div key={entry.id} className="relative">
-                      <div className="absolute -left-3.5 top-1 w-3 h-3 rounded-full bg-primary border-2 border-background" />
-                      <p className="text-sm font-semibold">{entry.action}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">{entry.details}</p>
-                      <p className="text-[10px] text-muted-foreground/60 mt-1">
-                        {entry.actor} &bull; {new Date(entry.createdAt).toLocaleString()}
-                      </p>
-                    </div>
-                  ))}
+        {/* Asset details card */}
+        <div className="bg-card border border-border rounded-xl p-5">
+          {editing ? (
+            <div className="space-y-4">
+              <h2 className="font-semibold">Edit Asset</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium mb-1.5 text-muted-foreground uppercase tracking-wider">Name</label>
+                  <input type="text" value={editForm.name ?? ''} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5 text-muted-foreground uppercase tracking-wider">Category</label>
+                  <select value={editForm.category ?? ''} onChange={e => setEditForm(f => ({ ...f, category: e.target.value as AssetCategory }))} className={inputCls}>
+                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5 text-muted-foreground uppercase tracking-wider">Location</label>
+                  <input type="text" value={editForm.location ?? ''} onChange={e => setEditForm(f => ({ ...f, location: e.target.value }))} className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5 text-muted-foreground uppercase tracking-wider">Condition</label>
+                  <select value={editForm.condition ?? ''} onChange={e => setEditForm(f => ({ ...f, condition: e.target.value as AssetCondition }))} className={inputCls}>
+                    {CONDITIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5 text-muted-foreground uppercase tracking-wider">Status</label>
+                  <select value={editForm.status ?? ''} onChange={e => setEditForm(f => ({ ...f, status: e.target.value as AssetStatus }))} className={inputCls}>
+                    {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5 text-muted-foreground uppercase tracking-wider">Model</label>
+                  <input type="text" value={editForm.model ?? ''} onChange={e => setEditForm(f => ({ ...f, model: e.target.value }))} className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5 text-muted-foreground uppercase tracking-wider">Serial Number</label>
+                  <input type="text" value={editForm.serial_number ?? ''} onChange={e => setEditForm(f => ({ ...f, serial_number: e.target.value }))} className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5 text-muted-foreground uppercase tracking-wider">Purchase Date</label>
+                  <input type="date" value={editForm.purchase_date ?? ''} onChange={e => setEditForm(f => ({ ...f, purchase_date: e.target.value }))} className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5 text-muted-foreground uppercase tracking-wider">Last Service</label>
+                  <input type="date" value={editForm.last_service_date ?? ''} onChange={e => setEditForm(f => ({ ...f, last_service_date: e.target.value }))} className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1.5 text-muted-foreground uppercase tracking-wider">Next Service Due</label>
+                  <input type="date" value={editForm.next_service_date ?? ''} onChange={e => setEditForm(f => ({ ...f, next_service_date: e.target.value }))} className={inputCls} />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium mb-1.5 text-muted-foreground uppercase tracking-wider">Notes</label>
+                  <textarea rows={3} value={editForm.notes ?? ''} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} className={inputCls} />
                 </div>
               </div>
-            )}
-          </div>
-        )}
-
-        {/* QR tab */}
-        {activeTab === 'qr' && (
-          <div className="grid sm:grid-cols-2 gap-5">
-            <div className="bg-card border border-border rounded-xl p-6 flex flex-col items-center">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">QR Code</p>
-              {qrDataUrl ? (
-                <img src={qrDataUrl} alt="Asset QR Code" className="w-44 h-44" />
-              ) : (
-                <div className="w-44 h-44 bg-muted rounded animate-pulse" />
+              <div className="flex gap-3 pt-1">
+                <button onClick={saveEdit} disabled={saving} className="flex items-center gap-1.5 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-semibold hover:bg-primary/90 transition disabled:opacity-60">
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save Changes
+                </button>
+                <button onClick={() => setEditing(false)} className="flex items-center gap-1.5 border border-border px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted transition">
+                  <X className="w-4 h-4" /> Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                {[
+                  { icon: Tag, label: 'Category', value: asset.category },
+                  { icon: MapPin, label: 'Location', value: asset.location },
+                  { icon: Activity, label: 'Condition', value: asset.condition },
+                  { icon: Wrench, label: 'Model', value: asset.model || '—' },
+                  { icon: Package, label: 'Serial Number', value: asset.serial_number || '—' },
+                  { icon: Calendar, label: 'Purchase Date', value: asset.purchase_date ? new Date(asset.purchase_date).toLocaleDateString() : '—' },
+                  { icon: Calendar, label: 'Last Service', value: asset.last_service_date ? new Date(asset.last_service_date).toLocaleDateString() : '—' },
+                  { icon: Calendar, label: 'Next Service', value: asset.next_service_date ? new Date(asset.next_service_date).toLocaleDateString() : '—' },
+                ].map(({ icon: Icon, label, value }) => (
+                  <div key={label} className="flex items-start gap-2">
+                    <Icon className="w-3.5 h-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">{label}</p>
+                      <p className="text-sm font-medium">{value}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {asset.notes && (
+                <div className="mt-4 pt-4 border-t border-border">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-1">Notes</p>
+                  <p className="text-sm text-muted-foreground">{asset.notes}</p>
+                </div>
               )}
-              <p className="text-xs font-mono text-muted-foreground mt-3">{asset.code}</p>
-              <div className="flex gap-2 mt-4">
-                <button onClick={handleDownloadQR} className="flex items-center gap-1.5 text-xs border border-border px-3 py-1.5 rounded-md hover:bg-muted transition">
-                  <Download className="w-3.5 h-3.5" /> Download
+
+              {/* Public link */}
+              <div className="mt-4 pt-4 border-t border-border flex items-center gap-3">
+                <QrCode className="w-4 h-4 text-muted-foreground" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-muted-foreground font-medium">Public Report URL</p>
+                  <p className="text-xs font-mono text-primary truncate">{typeof window !== 'undefined' ? `${window.location.origin}/asset/${asset.code}` : `/asset/${asset.code}`}</p>
+                </div>
+                <Link href={`/asset/${asset.code}`} target="_blank" className="p-1.5 hover:bg-muted rounded transition">
+                  <ExternalLink className="w-4 h-4 text-muted-foreground" />
+                </Link>
+                <button onClick={copyUrl} className="p-1.5 hover:bg-muted rounded transition">
+                  {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4 text-muted-foreground" />}
                 </button>
-                <button onClick={handlePrintLabel} className="flex items-center gap-1.5 text-xs border border-border px-3 py-1.5 rounded-md hover:bg-muted transition">
-                  <Printer className="w-3.5 h-3.5" /> Print Label
-                </button>
               </div>
-            </div>
-            <div className="bg-card border border-border rounded-xl p-6 space-y-4">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Public Asset Link</p>
-              <div className="bg-muted rounded-lg p-3 break-all">
-                <p className="text-xs font-mono text-foreground">{publicUrl}</p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={handleCopyLink}
-                  className="flex items-center gap-1.5 text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-md hover:bg-primary/90 transition"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  {copied ? 'Copied!' : 'Copy Link'}
-                </button>
-                <a
-                  href={publicUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-xs border border-border px-3 py-1.5 rounded-md hover:bg-muted transition"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" /> Open Page
-                </a>
-              </div>
-              <div className="border-t border-border pt-4">
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  This link is safe to share. It only exposes public asset information and the issue-reporting form. No private data, costs, or internal notes are visible.
-                </p>
-              </div>
-            </div>
+            </>
+          )}
+        </div>
+
+        {/* Open issues */}
+        <div className="bg-card border border-border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold">Issues ({issues.length})</h2>
+            <Link href="/dashboard/issues" className="text-xs font-semibold text-primary hover:underline">View all &rarr;</Link>
           </div>
-        )}
+          {issues.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No issues recorded for this asset.</p>
+          ) : (
+            <div className="space-y-2">
+              {issues.slice(0, 5).map(issue => (
+                <Link key={issue.id} href={`/dashboard/issues/${issue.id}`} className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition group">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate group-hover:text-primary transition">{issue.title}</p>
+                    <p className="text-xs text-muted-foreground">{issue.issue_number} &middot; {new Date(issue.created_at).toLocaleDateString()}</p>
+                  </div>
+                  <div className="flex gap-1.5 flex-shrink-0">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${PRIORITY_COLORS[issue.priority]}`}>{issue.priority}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-semibold">{issue.status}</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* History */}
+        <div className="bg-card border border-border rounded-xl p-5">
+          <h2 className="font-semibold mb-4">History ({history.length})</h2>
+          {history.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No history entries yet.</p>
+          ) : (
+            <div className="relative pl-5">
+              <div className="absolute left-2 top-0 bottom-0 w-px bg-border" />
+              <div className="space-y-4">
+                {history.slice(0, 10).map(entry => (
+                  <div key={entry.id} className="relative">
+                    <div className="absolute -left-3.5 top-1 w-3 h-3 rounded-full bg-primary border-2 border-background" />
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold">{entry.action}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{entry.details}</p>
+                        <p className="text-[10px] text-muted-foreground/60 mt-1">{entry.actor}</p>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground/60 flex-shrink-0">
+                        {new Date(entry.created_at).toLocaleDateString()} {new Date(entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </AppShell>
   )

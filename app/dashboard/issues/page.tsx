@@ -2,12 +2,19 @@
 
 import { useEffect, useState } from 'react'
 import AppShell from '@/components/app-shell'
-import { getData } from '@/lib/store'
-import type { Issue, Asset, User, IssueStatus, IssuePriority, IssueCategory } from '@/lib/types'
+import { createClient } from '@/lib/supabase/client'
+import type { Issue, Asset, IssueStatus, IssuePriority } from '@/lib/types'
+import { AlertTriangle, Search, Filter } from 'lucide-react'
 import Link from 'next/link'
-import { AlertCircle, Search, Filter, AlertTriangle, ChevronRight } from 'lucide-react'
 
-const statusColors: Record<string, string> = {
+const PRIORITY_COLORS: Record<string, string> = {
+  Critical: 'bg-red-100 text-red-700 border-red-200',
+  High: 'bg-orange-100 text-orange-700 border-orange-200',
+  Medium: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+  Low: 'bg-green-100 text-green-700 border-green-200',
+}
+
+const STATUS_COLORS: Record<string, string> = {
   Reported: 'bg-yellow-100 text-yellow-700',
   Assigned: 'bg-blue-100 text-blue-700',
   'Inspection Started': 'bg-indigo-100 text-indigo-700',
@@ -18,47 +25,60 @@ const statusColors: Record<string, string> = {
   Reopened: 'bg-red-100 text-red-700',
 }
 
-const priorityColors: Record<string, string> = {
-  Low: 'bg-gray-100 text-gray-600',
-  Medium: 'bg-blue-100 text-blue-700',
-  High: 'bg-orange-100 text-orange-700',
-  Critical: 'bg-red-100 text-red-700',
-}
-
-const STATUSES: IssueStatus[] = ['Reported', 'Assigned', 'Inspection Started', 'Maintenance In Progress', 'Waiting for Parts', 'Resolved', 'Closed', 'Reopened']
-const PRIORITIES: IssuePriority[] = ['Low', 'Medium', 'High', 'Critical']
-
 export default function IssuesPage() {
   const [issues, setIssues] = useState<Issue[]>([])
   const [assets, setAssets] = useState<Asset[]>([])
-  const [users, setUsers] = useState<User[]>([])
+  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [filterStatus, setFilterStatus] = useState('')
-  const [filterPriority, setFilterPriority] = useState('')
+  const [filterStatus, setFilterStatus] = useState<IssueStatus | 'All' | 'Open'>('All')
+  const [filterPriority, setFilterPriority] = useState<IssuePriority | 'All'>('All')
 
   useEffect(() => {
-    const data = getData()
-    setIssues(data.issues.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
-    setAssets(data.assets)
-    setUsers(data.users)
+    const supabase = createClient()
+    Promise.all([
+      supabase.from('issues').select('*').order('created_at', { ascending: false }),
+      supabase.from('assets').select('id,name,code'),
+    ]).then(([{ data: i }, { data: a }]) => {
+      setIssues(i ?? [])
+      setAssets((a as Asset[]) ?? [])
+      setLoading(false)
+    })
   }, [])
 
-  const filtered = issues.filter(i => {
-    const asset = assets.find(a => a.id === i.assetId)
+  const statuses = ['All', 'Open', 'Reported', 'Assigned', 'Inspection Started', 'Maintenance In Progress', 'Waiting for Parts', 'Resolved', 'Closed', 'Reopened']
+  const priorities: (IssuePriority | 'All')[] = ['All', 'Critical', 'High', 'Medium', 'Low']
+
+  const filtered = issues.filter(issue => {
+    const asset = assets.find(a => a.id === issue.asset_id)
     const q = search.toLowerCase()
-    const matchSearch = !q || i.title.toLowerCase().includes(q) || i.issueNumber.toLowerCase().includes(q) || asset?.name.toLowerCase().includes(q) || false
-    const matchStatus = !filterStatus || i.status === filterStatus
-    const matchPriority = !filterPriority || i.priority === filterPriority
+    const matchSearch = !search
+      || issue.title.toLowerCase().includes(q)
+      || issue.issue_number.toLowerCase().includes(q)
+      || (asset?.name.toLowerCase().includes(q) ?? false)
+      || issue.reporter_name.toLowerCase().includes(q)
+
+    const matchStatus = filterStatus === 'All'
+      ? true
+      : filterStatus === 'Open'
+      ? !['Resolved', 'Closed'].includes(issue.status)
+      : issue.status === filterStatus
+
+    const matchPriority = filterPriority === 'All' || issue.priority === filterPriority
     return matchSearch && matchStatus && matchPriority
   })
 
+  const openCount = issues.filter(i => !['Resolved', 'Closed'].includes(i.status)).length
+  const criticalCount = issues.filter(i => i.priority === 'Critical' && !['Resolved', 'Closed'].includes(i.status)).length
+
   return (
     <AppShell requireRole="admin">
-      <div className="max-w-5xl mx-auto space-y-5">
-        <div className="flex items-center justify-between">
+      <div className="space-y-5">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold">Issues</h1>
-            <p className="text-muted-foreground text-sm mt-0.5">{issues.filter(i => !['Resolved', 'Closed'].includes(i.status)).length} open &bull; {issues.length} total</p>
+            <p className="text-muted-foreground text-sm mt-0.5">
+              {openCount} open &middot; {criticalCount} critical
+            </p>
           </div>
         </div>
 
@@ -68,66 +88,85 @@ export default function IssuesPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Search issues by title, number, or asset..."
+              placeholder="Search by title, issue #, asset, or reporter..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-sm border border-border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="w-full pl-9 pr-3 py-2 text-sm border border-border rounded-lg bg-card focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </div>
-          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus:ring-2 focus:ring-primary/30">
-            <option value="">All Statuses</option>
-            {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)} className="border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus:ring-2 focus:ring-primary/30">
-            <option value="">All Priorities</option>
-            {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+            <select
+              value={filterStatus}
+              onChange={e => setFilterStatus(e.target.value as IssueStatus | 'All' | 'Open')}
+              className="text-sm border border-border rounded-lg px-2.5 py-2 bg-card focus:outline-none"
+            >
+              {statuses.map(s => <option key={s} value={s}>{s === 'All' ? 'All Statuses' : s}</option>)}
+            </select>
+            <select
+              value={filterPriority}
+              onChange={e => setFilterPriority(e.target.value as IssuePriority | 'All')}
+              className="text-sm border border-border rounded-lg px-2.5 py-2 bg-card focus:outline-none"
+            >
+              {priorities.map(p => <option key={p} value={p}>{p === 'All' ? 'All Priorities' : p}</option>)}
+            </select>
+          </div>
         </div>
 
-        {/* Issue list */}
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="bg-card border border-border rounded-xl p-4 animate-pulse">
+                <div className="h-4 bg-muted rounded w-1/2 mb-2" />
+                <div className="h-3 bg-muted rounded w-1/3" />
+              </div>
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
           <div className="text-center py-16 bg-card rounded-xl border border-border">
-            <AlertCircle className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+            <AlertTriangle className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
             <p className="font-semibold">No issues found</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {issues.length === 0 ? 'No issues have been reported yet.' : 'Try adjusting your search or filters.'}
+            </p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {filtered.map(issue => {
-              const asset = assets.find(a => a.id === issue.assetId)
-              const tech = users.find(u => u.id === issue.assignedTechnicianId)
-              return (
-                <Link
-                  key={issue.id}
-                  href={`/dashboard/issues/${issue.id}`}
-                  className="flex items-start gap-4 bg-card border border-border rounded-xl p-4 hover:border-primary/30 hover:shadow-sm transition-all group"
-                >
-                  <AlertTriangle className={`w-4 h-4 mt-0.5 flex-shrink-0 ${
-                    issue.priority === 'Critical' ? 'text-red-500' :
-                    issue.priority === 'High' ? 'text-orange-500' :
-                    issue.priority === 'Medium' ? 'text-blue-500' : 'text-gray-400'
-                  }`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-sm">{issue.title}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5 font-mono">{issue.issueNumber} &bull; {asset?.name || 'Unknown Asset'}</p>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5 group-hover:text-primary transition" />
+          <div className="bg-card border border-border rounded-xl overflow-hidden">
+            <div className="hidden md:grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-3 px-4 py-3 border-b border-border bg-muted/30 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              <span>#</span>
+              <span>Issue</span>
+              <span>Asset</span>
+              <span>Reporter</span>
+              <span>Priority</span>
+              <span>Status</span>
+            </div>
+            <div className="divide-y divide-border">
+              {filtered.map(issue => {
+                const asset = assets.find(a => a.id === issue.asset_id)
+                return (
+                  <Link
+                    key={issue.id}
+                    href={`/dashboard/issues/${issue.id}`}
+                    className="grid grid-cols-1 md:grid-cols-[auto_1fr_auto_auto_auto_auto] gap-3 px-4 py-3.5 items-center hover:bg-muted/20 transition group"
+                  >
+                    <span className="text-xs font-mono text-muted-foreground hidden md:block">{issue.issue_number}</span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate group-hover:text-primary transition">{issue.title}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5 md:hidden">{issue.issue_number} &middot; {asset?.name ?? 'Unknown'}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5 hidden md:block">{new Date(issue.created_at).toLocaleDateString()}</p>
                     </div>
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${priorityColors[issue.priority]}`}>{issue.priority}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${statusColors[issue.status]}`}>{issue.status}</span>
-                      {issue.aiSuggested && <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-purple-100 text-purple-700">AI Triaged</span>}
-                      {tech && <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-muted text-muted-foreground">{tech.name}</span>}
-                    </div>
-                  </div>
-                  <div className="text-right flex-shrink-0 hidden sm:block">
-                    <p className="text-[10px] text-muted-foreground">{new Date(issue.createdAt).toLocaleDateString()}</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">by {issue.reporterName}</p>
-                  </div>
-                </Link>
-              )
-            })}
+                    <span className="text-xs text-muted-foreground hidden md:block truncate max-w-[120px]">{asset?.name ?? 'Unknown'}</span>
+                    <span className="text-xs text-muted-foreground hidden md:block">{issue.reporter_name}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-semibold hidden md:inline-block ${PRIORITY_COLORS[issue.priority]}`}>
+                      {issue.priority}
+                    </span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold hidden md:inline-block ${STATUS_COLORS[issue.status]}`}>
+                      {issue.status}
+                    </span>
+                  </Link>
+                )
+              })}
+            </div>
           </div>
         )}
       </div>
