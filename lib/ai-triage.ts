@@ -21,7 +21,7 @@ export async function triageIssue(
 ): Promise<TriageResult> {
   try {
     console.log('[v0] Starting AI triage with Gemini API')
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
     const prompt = `You are an expert maintenance and asset management AI. Analyze this maintenance issue and provide structured triage information.
 
