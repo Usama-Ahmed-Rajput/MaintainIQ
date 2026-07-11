@@ -3,17 +3,19 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { ShieldCheck, Eye, EyeOff, Loader2 } from 'lucide-react'
+import { signUp } from '@/lib/actions'
+import { ShieldCheck, Eye, EyeOff, Loader2, Key, UserCheck, Wrench } from 'lucide-react'
 
 type Mode = 'signin' | 'signup'
 
 export default function LoginPage() {
   const router = useRouter()
   const [mode, setMode] = useState<Mode>('signin')
+  const [isAdminSignup, setIsAdminSignup] = useState(false)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState<'admin' | 'technician'>('technician')
+  const [inviteCode, setInviteCode] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -24,7 +26,11 @@ export default function LoginPage() {
     const supabase = createClient()
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
-        const { data } = await supabase.from('profiles').select('role').eq('id', session.user.id).single()
+        const { data } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', session.user.id)
+          .single()
         if (data?.role === 'admin') router.replace('/dashboard')
         else router.replace('/technician')
       } else {
@@ -32,6 +38,14 @@ export default function LoginPage() {
       }
     })
   }, [router])
+
+  function switchMode(m: Mode) {
+    setMode(m)
+    setError('')
+    setMessage('')
+    setIsAdminSignup(false)
+    setInviteCode('')
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -49,31 +63,35 @@ export default function LoginPage() {
         return
       }
       if (data.user) {
-        const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).single()
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', data.user.id)
+          .single()
         if (profile?.role === 'admin') router.replace('/dashboard')
         else router.replace('/technician')
       }
     } else {
       if (!name.trim()) {
-        setError('Name is required')
+        setError('Full name is required.')
         setLoading(false)
         return
       }
-      const { error: err } = await supabase.auth.signUp({
-        email,
+      const role = isAdminSignup ? 'admin' : 'technician'
+      const { error: err, message: msg } = await signUp(
+        name.trim(),
+        email.trim(),
         password,
-        options: {
-          data: { name: name.trim(), role },
-        },
-      })
+        role,
+        isAdminSignup ? inviteCode.trim() : undefined,
+      )
       if (err) {
-        setError(err.message)
+        setError(err)
         setLoading(false)
         return
       }
-      setMessage('Account created! Check your email to confirm, then sign in.')
-      setMode('signin')
-      setPassword('')
+      setMessage(msg ?? 'Account created! Check your email to confirm, then sign in.')
+      switchMode('signin')
       setLoading(false)
     }
   }
@@ -86,7 +104,8 @@ export default function LoginPage() {
     )
   }
 
-  const inputCls = "w-full border border-border rounded-lg px-3 py-2.5 text-sm bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition"
+  const inputCls =
+    'w-full border border-border rounded-lg px-3 py-2.5 text-sm bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition'
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -104,17 +123,21 @@ export default function LoginPage() {
           {/* Tab switcher */}
           <div className="flex bg-muted rounded-lg p-1 mb-6">
             <button
-              onClick={() => { setMode('signin'); setError(''); setMessage('') }}
+              onClick={() => switchMode('signin')}
               className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors ${
-                mode === 'signin' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                mode === 'signin'
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               Sign In
             </button>
             <button
-              onClick={() => { setMode('signup'); setError(''); setMessage('') }}
+              onClick={() => switchMode('signup')}
               className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors ${
-                mode === 'signup' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                mode === 'signup'
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               Sign Up
@@ -181,18 +204,61 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {/* Signup-specific: role toggle + invite code */}
             {mode === 'signup' && (
-              <div>
-                <label className="block text-sm font-medium mb-1.5">Role</label>
-                <select
-                  value={role}
-                  onChange={e => setRole(e.target.value as 'admin' | 'technician')}
-                  className={inputCls}
-                >
-                  <option value="admin">Admin</option>
-                  <option value="technician">Technician</option>
-                </select>
-              </div>
+              <>
+                {/* Role toggle pills */}
+                <div>
+                  <label className="block text-sm font-medium mb-2">Account Type</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setIsAdminSignup(false); setInviteCode('') }}
+                      className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg border text-sm font-medium transition-all ${
+                        !isAdminSignup
+                          ? 'bg-primary/10 border-primary text-primary'
+                          : 'border-border text-muted-foreground hover:border-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <Wrench className="w-4 h-4" />
+                      Technician
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsAdminSignup(true)}
+                      className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg border text-sm font-medium transition-all ${
+                        isAdminSignup
+                          ? 'bg-amber-50 border-amber-500 text-amber-700'
+                          : 'border-border text-muted-foreground hover:border-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <UserCheck className="w-4 h-4" />
+                      Admin
+                    </button>
+                  </div>
+                </div>
+
+                {/* Admin invite code — only shown when Admin pill is selected */}
+                {isAdminSignup && (
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 space-y-2">
+                    <div className="flex items-center gap-2 text-amber-700">
+                      <Key className="w-4 h-4 flex-shrink-0" />
+                      <p className="text-xs font-semibold">Admin Invite Code Required</p>
+                    </div>
+                    <p className="text-xs text-amber-600">
+                      Only one admin account is allowed. Enter the secret invite code provided by your system administrator.
+                    </p>
+                    <input
+                      type="text"
+                      value={inviteCode}
+                      onChange={e => setInviteCode(e.target.value)}
+                      placeholder="e.g. MAINTAINIQ-ADMIN-2024"
+                      className="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm bg-white text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 transition font-mono"
+                      required={isAdminSignup}
+                    />
+                  </div>
+                )}
+              </>
             )}
 
             <button
@@ -201,7 +267,7 @@ export default function LoginPage() {
               className="w-full bg-primary text-primary-foreground py-2.5 rounded-lg font-semibold text-sm hover:bg-primary/90 transition disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
             >
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              {mode === 'signin' ? 'Sign In' : 'Create Account'}
+              {mode === 'signin' ? 'Sign In' : isAdminSignup ? 'Create Admin Account' : 'Create Account'}
             </button>
           </form>
         </div>

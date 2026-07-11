@@ -33,18 +33,24 @@ export async function signIn(email: string, password: string) {
   return supabase.auth.signInWithPassword({ email, password })
 }
 
-export async function signUp(name: string, email: string, password: string, role: 'admin' | 'technician') {
-  const supabase = createClient()
-  return supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: { name, role },
-      emailRedirectTo:
-        process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ??
-        `${window.location.origin}/auth/callback`,
-    },
+// signUp goes through the API route so the server can enforce:
+// - only 1 admin ever allowed
+// - admin invite code verification
+export async function signUp(
+  name: string,
+  email: string,
+  password: string,
+  role: 'admin' | 'technician',
+  inviteCode?: string,
+): Promise<{ error: string | null; message: string | null }> {
+  const res = await fetch('/api/auth/signup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, email, password, role, inviteCode }),
   })
+  const json = await res.json()
+  if (!res.ok) return { error: json.error ?? 'Signup failed.', message: null }
+  return { error: null, message: json.message }
 }
 
 export async function signOut() {
